@@ -9,7 +9,7 @@ def generate_nonce():
     """Function to generate a random nonce."""
     return secrets.token_hex(16)
 
-def handle_client(conn, addr, nonce):
+def handle_client(conn, addr):
     """Function to handle communication with a client."""
     print(f"Connected by {addr}")
     with conn:
@@ -17,8 +17,14 @@ def handle_client(conn, addr, nonce):
             data = conn.recv(1024)
             if not data:
                 break
-            print(f"Received from {addr}: {data.decode()}")  # Imprimir los mensajes recibidos
-            conn.sendall(data)  # Aquí simplemente se devuelve el mismo mensaje al cliente, pero puedes modificar esto según sea necesario.
+
+            received_message = data.decode()
+            if received_message == "nonce_peticion":
+                nonce = generate_nonce()
+                conn.sendall(nonce.encode())
+            else:
+                print(f"Received from {addr}: {received_message}")
+                conn.sendall(data)  # En este caso, simplemente se devuelve el mismo mensaje al cliente.
     print(f"Connection with {addr} closed")
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -28,10 +34,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     
     while True:  # Infinite loop to keep server running and listening for new connections
         conn, addr = s.accept()
-        
-        nonce = generate_nonce()  # Generar un nonce
-        conn.sendall(nonce.encode())  # Enviar el nonce al cliente inmediatamente después de aceptar la conexión
-        
+
         # Start a new thread to handle the client connection
-        client_thread = threading.Thread(target=handle_client, args=(conn, addr, nonce))
+        client_thread = threading.Thread(target=handle_client, args=(conn, addr))
         client_thread.start()
