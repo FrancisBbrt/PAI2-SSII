@@ -7,15 +7,20 @@ PORT = 3030  # The port used by the server
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((HOST, PORT))
     
-    # Enviar una solicitud de nonce inmediatamente después de establecer la conexión
-    nonce_request = "nonce_peticion"
-    s.sendall(nonce_request.encode())
 
-    # Esperar y recibir el nonce del servidor
-    nonce_response = s.recv(1024).decode()
     
     while True:  # Infinite loop to keep client running and sending data
-        message = input("Enter your message (or 'exit' to quit): ")
+        
+        # Enviar una solicitud de nonce inmediatamente después de establecer la conexión
+        nonce_request = "nonce_peticion"
+        s.sendall(nonce_request.encode())
+
+        # Esperar y recibir el nonce del servidor
+        nonce_response = s.recv(1024).decode()
+        origen = 1234567887654321
+        destino = input("Introduce el numero de cuenta destino: ")
+        cantidad = input("Introduce la cantidad a transferir: ")
+        message = (origen, destino, cantidad)
         
         if message.lower() == "exit":
             break
