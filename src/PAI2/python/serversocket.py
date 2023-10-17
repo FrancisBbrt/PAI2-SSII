@@ -121,20 +121,20 @@ def handle_client(conn, addr):
                 try:
                     # Decodificar el mensaje JSON
                     json_data = json.loads(received_message)
-                    message = json_data.get('message', '')
+                    message = json_data.get('message', {})
+                    nonce_received = json_data.get('nonce', '')
                     hmac_received = json_data.get('hmac', '')
 
                     # Imprimir el HMAC recibido
                     print(f"HMAC received from {addr}: {hmac_received}")
 
                     # Verificar el HMAC
-                    if not verify_hmac(json.dumps({'message': message, 'nonce': json_data.get('nonce')}), hmac_received):
+                    if not verify_hmac(json.dumps(message), hmac_received):
                         conn.sendall("Invalid HMAC!".encode())
                         continue
 
                     # Verificar y actualizar el nonce
-                    nonce = json_data.get('nonce', '')
-                    if not check_and_update_nonce(nonce):
+                    if not check_and_update_nonce(nonce_received):
                         conn.sendall("Possible Repeat Attack".encode())
                     else:
                         # Imprimir el mensaje recibido

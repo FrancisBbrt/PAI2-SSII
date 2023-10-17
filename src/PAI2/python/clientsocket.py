@@ -61,16 +61,20 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 break
 
             cantidad = input("Introduce la cantidad a transferir: ")
-            message = (origen, destino, cantidad)
+            message = {
+                'origen': origen,
+                'destino':destino,
+                'cantidad':cantidad
+            }
+
+            json_message = json.dumps(message)
+            mac = generate_hmac(json_message)
 
             data_object = {
                 'message': message,
-                'nonce': nonce_response
+                'nonce': nonce_response,
+                'hmac': mac
             }
-
-            json_message = json.dumps(data_object)
-            mac = generate_hmac(json_message)
-            data_object['hmac'] = mac
 
             # Factor de aleatoriedad
             dice = random.randint(1, 6)
