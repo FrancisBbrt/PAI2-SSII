@@ -1,4 +1,3 @@
-# Importar las bibliotecas necesarias
 import socket
 import threading
 import secrets
@@ -14,45 +13,7 @@ PORT = 3030
 # Clave secreta utilizada para generar y verificar el HMAC
 SECRET_KEY = b"this_is_a_super_secret_key"
 
-# Inicializar conexión con la base de datos y crear tabla si no existe
-conn = sqlite3.connect('nonces.db')
-cursor = conn.cursor()
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS nonces (
-    nonce TEXT,
-    count INTEGER
-)''')
-conn.commit()
-
-# Función para generar un nonce único
-def generate_nonce():
-    while True:
-        nonce = secrets.token_hex(16)
-        cursor.execute("SELECT count FROM nonces WHERE nonce=?", (nonce,))
-        if cursor.fetchone() is None:
-            break
-
-    # Guardar el nonce en la base de datos
-    with conn:
-        cursor.execute("INSERT INTO nonces (nonce, count) VALUES (?, ?)", (nonce, 0))
-    return nonce
-
-# Función para verificar y actualizar el nonce en la base de datos
-def check_and_update_nonce(nonce):
-    cursor.execute("SELECT count FROM nonces WHERE nonce=?", (nonce,))
-    result = cursor.fetchone()
-    if result:
-        count = result[0]
-        if count == 0:
-            with conn:
-                cursor.execute("UPDATE nonces SET count=? WHERE nonce=?", (1, nonce))
-            return True
-        else:
-            return False
-    else:
-        return False
-
-# Función para verificar el HMAC recibido
+# Funciones globales (sin cambios)
 def verify_hmac(data, received_hmac):
     h = hmac.HMAC(SECRET_KEY, hashes.SHA256(), backend=default_backend())
     h.update(data.encode())
@@ -62,13 +23,28 @@ def verify_hmac(data, received_hmac):
     except:
         return False
 
+# Función para asegurar que la tabla 'kpis' exista
+def ensure_kpis_table_exists(cursor):
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS kpis (
+        id INTEGER PRIMARY KEY,
+        message TEXT,
+        hmac TEXT,
+        nonce TEXT,
+        integrity BOOLEAN,
+        reason TEXT
+    )''')
+
 # Función para manejar la comunicación con un cliente
 def handle_client(conn, addr):
-    # Crear una nueva conexión y cursor específicamente para este hilo
     conn_db = sqlite3.connect('nonces.db')
     cursor = conn_db.cursor()
-    
-    # Asegurarse de que la tabla exista
+
+    conn_kpi_local = sqlite3.connect('dbKPI.db')
+    cursor_kpi_local = conn_kpi_local.cursor()
+
+    ensure_kpis_table_exists(cursor_kpi_local)
+
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS nonces (
         nonce TEXT,
@@ -76,7 +52,6 @@ def handle_client(conn, addr):
     )''')
     conn_db.commit()
 
-    # Generar un nonce único
     def generate_nonce():
         while True:
             nonce = secrets.token_hex(16)
@@ -84,12 +59,10 @@ def handle_client(conn, addr):
             if cursor.fetchone() is None:
                 break
 
-        # Guardar el nonce en la base de datos
         with conn_db:
             cursor.execute("INSERT INTO nonces (nonce, count) VALUES (?, ?)", (nonce, 0))
         return nonce
 
-    # Verificar y actualizar el nonce en la base de datos
     def check_and_update_nonce(nonce):
         cursor.execute("SELECT count FROM nonces WHERE nonce=?", (nonce,))
         result = cursor.fetchone()
@@ -112,54 +85,59 @@ def handle_client(conn, addr):
                 break
 
             received_message = data.decode()
-
-            # Si el cliente solicita un nonce
             if received_message == "nonce_peticion":
                 nonce = generate_nonce()
                 conn.sendall(nonce.encode())
             else:
+                integrity = True
+                reasons = []
+
                 try:
-                    # Decodificar el mensaje JSON
                     json_data = json.loads(received_message)
                     message = json_data.get('message', {})
                     nonce_received = json_data.get('nonce', '')
                     hmac_received = json_data.get('hmac', '')
 
-                    # Imprimir el HMAC recibido
                     print(f"HMAC received from {addr}: {hmac_received}")
 
-                    # Verificar el HMAC
                     if not verify_hmac(json.dumps(message), hmac_received):
-                        conn.sendall("Invalid HMAC!".encode())
-                        continue
+                        reasons.append("Invalid HMAC!")
+                        integrity = False
 
-                    # Verificar y actualizar el nonce
                     if not check_and_update_nonce(nonce_received):
-                        conn.sendall("Possible Repeat Attack".encode())
-                    else:
-                        # Imprimir el mensaje recibido
+                        reasons.append("Possible Repeat Attack")
+                        integrity = False
+
+                    if integrity:
                         print(f"Message received from {addr}: {message}")
                         conn.sendall(data)
+                    else:
+                        response_msg = "; ".join(reasons)
+                        conn.sendall(response_msg.encode())
+
                 except json.JSONDecodeError:
-                    conn.sendall("Invalid JSON data received".encode())
+                    reasons.append("Invalid JSON data received")
+                    integrity = False
+                    conn.sendall(reasons[-1].encode())
 
-    print(f"Connection with {addr} closed")
-    
-    # Cerrar la conexión con la base de datos al finalizar la función
-    conn_db.close()
+                reason_string = "; ".join(reasons)
+
+                with conn_kpi_local:
+                    cursor_kpi_local.execute("INSERT INTO kpis (message, hmac, nonce, integrity, reason) VALUES (?, ?, ?, ?, ?)",
+                                (json.dumps(message), hmac_received, nonce_received, integrity, reason_string))
 
 
-# Iniciar el servidor y esperar conexiones de clientes
+        print(f"Connection with {addr} closed")
+        conn_db.close()
+        conn_kpi_local.close()
+
+        
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))
     s.listen()
     print(f"Listening on {HOST}:{PORT}")
 
-    # Aceptar conexiones de clientes y manejarlas en hilos separados
     while True:
         conn, addr = s.accept()
         client_thread = threading.Thread(target=handle_client, args=(conn, addr))
         client_thread.start()
-
-# Cerrar la conexión con la base de datos al finalizar la ejecución del programa
-conn.close()

@@ -1,4 +1,3 @@
-# Importar las bibliotecas necesarias
 import socket
 import json
 import sqlite3
@@ -43,29 +42,27 @@ def generate_hmac(data):
     h.update(data.encode())
     return h.finalize().hex()
 
+def generate_random_messages(n):
+    messages = []
+    for _ in range(n):
+        destino = random.randint(1000000000000000, 9999999999999999)  # Cuentas de 16 dígitos
+        cantidad = round(random.uniform(10.0, 5000.0), 2)  # Cantidad entre 10 y 5000 con dos decimales
+        messages.append({'origen': 1234567887654321, 'destino': destino, 'cantidad': cantidad})
+    return messages
+
 # Establecer conexión con el servidor
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((HOST, PORT))
 
-    while True:
+    messages_to_send = generate_random_messages(1000)  # Cambia 10 por el número de mensajes que quieras generar
+
+    for message in messages_to_send:
         try:
             nonce_request = "nonce_peticion"
             s.sendall(nonce_request.encode())
 
             nonce_response = s.recv(1024).decode()
             store_nonce(nonce_response)
-
-            origen = 1234567887654321
-            destino = input("Introduce el numero de cuenta destino: ")
-            if destino.lower() == "exit":
-                break
-
-            cantidad = input("Introduce la cantidad a transferir: ")
-            message = {
-                'origen': origen,
-                'destino':destino,
-                'cantidad':cantidad
-            }
 
             json_message = json.dumps(message)
             mac = generate_hmac(json_message)
